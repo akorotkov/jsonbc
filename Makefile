@@ -1,7 +1,7 @@
-MODULE_big = jsonb
-OBJS = jsonb.o jsonb_gin.o jsonb_op.o jsonb_util.o json.o numeric.o jsonfuncs.o
-EXTENSION = jsonb
-DATA = jsonb--1.0.sql
+MODULE_big = jsonbc
+OBJS = jsonbc.o jsonbc_gin.o jsonbc_op.o jsonbc_util.o
+EXTENSION = jsonbc
+DATA = jsonbc--1.0.sql
 
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
