@@ -1,6 +1,21 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION jsonbc" to load this file. \quit
 
+CREATE TABLE jsonbc_dict
+(
+	id serial PRIMARY KEY,
+	name text NOT NULL,
+	UNIQUE (name)
+);
+
+CREATE OR REPLACE FUNCTION get_id_by_name(text)
+  RETURNS int AS
+'MODULE_PATHNAME' LANGUAGE C VOLATILE STRICT;
+
+CREATE OR REPLACE FUNCTION get_name_by_id(int)
+  RETURNS text AS
+'MODULE_PATHNAME' LANGUAGE C VOLATILE STRICT;
+
 CREATE OR REPLACE FUNCTION jsonbc_in(cstring)
   RETURNS jsonbc AS
 'MODULE_PATHNAME', 'jsonbc_in'

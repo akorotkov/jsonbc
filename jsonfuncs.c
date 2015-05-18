@@ -28,7 +28,7 @@
 #include "utils/hsearch.h"
 #include "utils/json.h"
 #include "utils/jsonapi.h"
-#include "utils/jsonbc.h"
+#include "jsonbc.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/typcache.h"
@@ -62,7 +62,7 @@ static void alen_array_element_start(void *state, bool isnull);
 
 /* common workers for json{b}_each* functions */
 static Datum each_worker(FunctionCallInfo fcinfo, bool as_text);
-static Datum each_worker_jsonbc(FunctionCallInfo fcinfo, const char *funcname,
+static Datum each_worker_jsonb(FunctionCallInfo fcinfo, const char *funcname,
 				  bool as_text);
 
 /* semantic action functions for json_each */
@@ -74,7 +74,7 @@ static void each_scalar(void *state, char *token, JsonTokenType tokentype);
 /* common workers for json{b}_array_elements_* functions */
 static Datum elements_worker(FunctionCallInfo fcinfo, const char *funcname,
 				bool as_text);
-static Datum elements_worker_jsonbc(FunctionCallInfo fcinfo, const char *funcname,
+static Datum elements_worker_jsonb(FunctionCallInfo fcinfo, const char *funcname,
 					  bool as_text);
 
 /* semantic action functions for json_array_elements */
@@ -225,8 +225,8 @@ typedef struct PopulateRecordsetState
 	MemoryContext fn_mcxt;		/* used to stash IO funcs */
 } PopulateRecordsetState;
 
-/* Turn a jsonbc object into a record */
-static void make_row_from_rec_and_jsonbc(Jsonbc *element,
+/* Turn a jsonb object into a record */
+static void make_row_from_rec_and_jsonb(Jsonbc *element,
 							PopulateRecordsetState *state);
 
 /*
@@ -430,7 +430,7 @@ okeys_scalar(void *state, char *token, JsonTokenType tokentype)
 }
 
 /*
- * json and jsonbc getter functions
+ * json and jsonb getter functions
  * these implement the -> ->> #> and #>> operators
  * and the json{b?}_extract_path*(json, text, ...) functions
  */
@@ -529,7 +529,7 @@ jsonbc_object_field_text(PG_FUNCTION_ARGS)
 				}
 				break;
 			default:
-				elog(ERROR, "unrecognized jsonbc type: %d", (int) v->type);
+				elog(ERROR, "unrecognized jsonb type: %d", (int) v->type);
 		}
 
 		if (result)
@@ -624,7 +624,7 @@ jsonbc_array_element_text(PG_FUNCTION_ARGS)
 				}
 				break;
 			default:
-				elog(ERROR, "unrecognized jsonbc type: %d", (int) v->type);
+				elog(ERROR, "unrecognized jsonb type: %d", (int) v->type);
 		}
 
 		if (result)
@@ -1152,7 +1152,7 @@ get_jsonbc_path_all(FunctionCallInfo fcinfo, bool as_text)
 		}
 		else
 		{
-			/* not text mode - just hand back the jsonbc */
+			/* not text mode - just hand back the jsonb */
 			PG_RETURN_JSONB(jb);
 		}
 	}
@@ -1229,7 +1229,7 @@ get_jsonbc_path_all(FunctionCallInfo fcinfo, bool as_text)
 	}
 	else
 	{
-		/* not text mode - just hand back the jsonbc */
+		/* not text mode - just hand back the jsonb */
 		PG_RETURN_JSONB(res);
 	}
 }
@@ -1340,7 +1340,7 @@ json_each(PG_FUNCTION_ARGS)
 Datum
 jsonbc_each(PG_FUNCTION_ARGS)
 {
-	return each_worker_jsonbc(fcinfo, "jsonbc_each", false);
+	return each_worker_jsonb(fcinfo, "jsonbc_each", false);
 }
 
 Datum
@@ -1352,11 +1352,11 @@ json_each_text(PG_FUNCTION_ARGS)
 Datum
 jsonbc_each_text(PG_FUNCTION_ARGS)
 {
-	return each_worker_jsonbc(fcinfo, "jsonbc_each_text", true);
+	return each_worker_jsonb(fcinfo, "jsonbc_each_text", true);
 }
 
 static Datum
-each_worker_jsonbc(FunctionCallInfo fcinfo, const char *funcname, bool as_text)
+each_worker_jsonb(FunctionCallInfo fcinfo, const char *funcname, bool as_text)
 {
 	Jsonbc	   *jb = PG_GETARG_JSONB(0);
 	ReturnSetInfo *rsi;
@@ -1664,17 +1664,17 @@ each_scalar(void *state, char *token, JsonTokenType tokentype)
 Datum
 jsonbc_array_elements(PG_FUNCTION_ARGS)
 {
-	return elements_worker_jsonbc(fcinfo, "jsonbc_array_elements", false);
+	return elements_worker_jsonb(fcinfo, "jsonbc_array_elements", false);
 }
 
 Datum
 jsonbc_array_elements_text(PG_FUNCTION_ARGS)
 {
-	return elements_worker_jsonbc(fcinfo, "jsonbc_array_elements_text", true);
+	return elements_worker_jsonb(fcinfo, "jsonbc_array_elements_text", true);
 }
 
 static Datum
-elements_worker_jsonbc(FunctionCallInfo fcinfo, const char *funcname,
+elements_worker_jsonb(FunctionCallInfo fcinfo, const char *funcname,
 					  bool as_text)
 {
 	Jsonbc	   *jb = PG_GETARG_JSONB(0);
@@ -1982,7 +1982,7 @@ elements_scalar(void *state, char *token, JsonTokenType tokentype)
  * which is in turn partly adapted from record_out.
  *
  * The json is decomposed into a hash table, in which each
- * field in the record is then looked up by name. For jsonbc
+ * field in the record is then looked up by name. For jsonb
  * we fetch the values direct from the object.
  */
 Datum
@@ -2254,7 +2254,7 @@ populate_record_worker(FunctionCallInfo fcinfo, const char *funcname,
 				else if (v->type == jbvBinary)
 					s = JsonbcToCString(NULL, (JsonbcContainer *) v->val.binary.data, v->val.binary.len);
 				else
-					elog(ERROR, "unrecognized jsonbc type: %d", (int) v->type);
+					elog(ERROR, "unrecognized jsonb type: %d", (int) v->type);
 			}
 
 			values[i] = InputFunctionCall(&column_info->proc, s,
@@ -2444,7 +2444,7 @@ json_to_recordset(PG_FUNCTION_ARGS)
 }
 
 static void
-make_row_from_rec_and_jsonbc(Jsonbc *element, PopulateRecordsetState *state)
+make_row_from_rec_and_jsonb(Jsonbc *element, PopulateRecordsetState *state)
 {
 	Datum	   *values;
 	bool	   *nulls;
@@ -2547,7 +2547,7 @@ make_row_from_rec_and_jsonbc(Jsonbc *element, PopulateRecordsetState *state)
 			else if (v->type == jbvBinary)
 				s = JsonbcToCString(NULL, (JsonbcContainer *) v->val.binary.data, v->val.binary.len);
 			else
-				elog(ERROR, "unrecognized jsonbc type: %d", (int) v->type);
+				elog(ERROR, "unrecognized jsonb type: %d", (int) v->type);
 
 			values[i] = InputFunctionCall(&column_info->proc, s,
 										  column_info->typioparam,
@@ -2725,7 +2725,7 @@ populate_recordset_worker(FunctionCallInfo fcinfo, const char *funcname,
 							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("argument of %s must be an array of objects",
 								funcname)));
-				make_row_from_rec_and_jsonbc(element, state);
+				make_row_from_rec_and_jsonb(element, state);
 			}
 		}
 	}

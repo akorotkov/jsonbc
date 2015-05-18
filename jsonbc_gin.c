@@ -18,8 +18,8 @@
 #include "access/skey.h"
 #include "catalog/pg_collation.h"
 #include "catalog/pg_type.h"
+#include "jsonbc.h"
 #include "utils/builtins.h"
-#include "utils/jsonbc.h"
 
 typedef struct PathHashStack
 {

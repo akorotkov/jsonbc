@@ -15,9 +15,9 @@
 
 #include "access/hash.h"
 #include "catalog/pg_collation.h"
+#include "jsonbc.h"
 #include "miscadmin.h"
 #include "utils/builtins.h"
-#include "utils/jsonbc.h"
 #include "utils/memutils.h"
 
 /*

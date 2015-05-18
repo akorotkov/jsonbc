@@ -14,8 +14,8 @@
 #include "postgres.h"
 
 #include "catalog/pg_type.h"
+#include "jsonbc.h"
 #include "miscadmin.h"
-#include "utils/jsonbc.h"
 
 Datum
 jsonbc_exists(PG_FUNCTION_ARGS)
