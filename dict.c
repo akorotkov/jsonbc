@@ -23,30 +23,37 @@ SPIPlanPtr savedPlanSelect = NULL;
 typedef struct
 {
 	int32	id;
-	char   *name;
+	KeyName	name;
 } IdToName;
 
 typedef struct
 {
-	char   *name;
+	KeyName	name;
 	int32	id;
 } NameToId;
 
 static uint32
 name_hash(const void *key, Size keysize)
 {
-	const char *name = *((const char **)key);
+	const KeyName *name = (const KeyName *)key;
 
-	return DatumGetUInt32(hash_any((const unsigned char *)name, strlen(name)));
+	return DatumGetUInt32(hash_any((unsigned char *)name->s, name->len));
 }
 
 static int
 name_match(const void *key1, const void *key2, Size keysize)
 {
-	const char *name1 = *((const char **)key1);
-	const char *name2 = *((const char **)key2);
+	const KeyName *name1 = (const KeyName *)key1;
+	const KeyName *name2 = (const KeyName *)key2;
 
-	return strcmp(name1, name2);
+	if (name1->len == name2->len)
+	{
+		return memcmp(name1->s, name2->s, name1->len);
+	}
+	else
+	{
+		return (name1->len > name2->len) ? 1 : -1;
+	}
 }
 
 static void
@@ -66,7 +73,7 @@ checkInit()
 							 HASH_FUNCTION | HASH_CONTEXT | HASH_ELEM);
 
 	memset(&ctl, 0, sizeof(ctl));
-	ctl.keysize = sizeof(char *);
+	ctl.keysize = sizeof(KeyName);
 	ctl.entrysize = sizeof(NameToId);
 	ctl.hash = name_hash;
 	ctl.match = name_match;
@@ -78,13 +85,16 @@ checkInit()
 }
 
 static IdToName *
-addEntry(int id, char *name)
+addEntry(int id, KeyName name)
 {
 	NameToId   *nameToId;
 	IdToName   *idToName;
 	bool		found;
+	char	   *copy;
 
-	name = MemoryContextStrdup(TopMemoryContext, name);
+	copy = MemoryContextAlloc(TopMemoryContext, name.len);
+	memcpy(copy, name.s, name.len);
+	name.s = copy;
 
 	nameToId = (NameToId *) hash_search(nameToIdHash,
 									 (const void *)&name,
@@ -100,7 +110,7 @@ addEntry(int id, char *name)
 }
 
 int32
-getIdByName(char *name)
+getIdByName(KeyName name)
 {
 	NameToId   *nameToId;
 	bool		found;
@@ -143,7 +153,7 @@ getIdByName(char *name)
 				elog(ERROR, "Error keeping plan");
 		}
 
-		args[0] = CStringGetTextDatum(name);
+		args[0] = PointerGetDatum(cstring_to_text_with_len(name.s, name.len));
 		if (SPI_execute_plan(savedPlanInsert, args, NULL, false, 1) < 0 ||
 				SPI_processed != 1)
 			elog(ERROR, "Failed to insert into dictionary");
@@ -156,7 +166,7 @@ getIdByName(char *name)
 	}
 }
 
-char *
+KeyName
 getNameById(int32 id)
 {
 	IdToName   *result;
@@ -176,7 +186,8 @@ getNameById(int32 id)
 		Oid		argTypes[1] = {INT4OID};
 		Datum	args[1];
 		bool	null;
-		char   *name;
+		text   *nameText;
+		KeyName	name;
 
 		SPI_connect();
 
@@ -197,10 +208,15 @@ getNameById(int32 id)
 		if (SPI_processed < 1)
 		{
 			SPI_finish();
-			return NULL;
+
+			name.s = NULL;
+			name.len = 0;
+			return name;
 		}
 
-		name = TextDatumGetCString(SPI_getbinval(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1, &null));
+		nameText = DatumGetTextPP(SPI_getbinval(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1, &null));
+		name.s = VARDATA_ANY(nameText);
+		name.len = VARSIZE_ANY_EXHDR(nameText);
 		result = addEntry(id, name);
 
 		SPI_finish();
@@ -214,10 +230,13 @@ PG_FUNCTION_INFO_V1(get_name_by_id);
 Datum
 get_id_by_name(PG_FUNCTION_ARGS)
 {
-	text *name = PG_GETARG_TEXT_PP(0);
+	text *nameText = PG_GETARG_TEXT_PP(0);
 	int32	id;
+	KeyName	name;
 
-	id = getIdByName(text_to_cstring(name));
+	name.s = VARDATA_ANY(nameText);
+	name.len = VARSIZE_ANY_EXHDR(nameText);
+	id = getIdByName(name);
 
 	PG_RETURN_INT32(id);
 }
@@ -226,11 +245,15 @@ Datum
 get_name_by_id(PG_FUNCTION_ARGS)
 {
 	int32 id = PG_GETARG_INT32(0);
-	char *name;
+	KeyName  name;
 
 	name = getNameById(id);
-	if (name)
-		PG_RETURN_TEXT_P(cstring_to_text(name));
+	if (name.s)
+	{
+		PG_RETURN_TEXT_P(cstring_to_text_with_len(name.s, name.len));
+	}
 	else
+	{
 		PG_RETURN_NULL();
+	}
 }

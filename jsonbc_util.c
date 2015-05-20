@@ -19,6 +19,7 @@
 #include "miscadmin.h"
 #include "utils/builtins.h"
 #include "utils/memutils.h"
+#include "dict.h"
 
 /*
  * Maximum number of elements in an array (or key/value pairs in an object).
@@ -55,8 +56,19 @@ static void appendKey(JsonbcParseState *pstate, JsonbcValue *scalarVal);
 static void appendValue(JsonbcParseState *pstate, JsonbcValue *scalarVal);
 static void appendElement(JsonbcParseState *pstate, JsonbcValue *scalarVal);
 static int	lengthCompareJsonbcStringValue(const void *a, const void *b);
-static int	lengthCompareJsonbcPair(const void *a, const void *b, void *arg);
+static int	compareJsonbcPair(const void *a, const void *b, void *arg);
 static void uniqueifyJsonbcObject(JsonbcValue *object);
+
+static int32
+convertKeyNameToId(JsonbcValue *string)
+{
+	KeyName	keyName;
+
+	keyName.s = string->val.string.val;
+	keyName.len = string->val.string.len;
+
+	return getIdByName(keyName);
+}
 
 /*
  * Turn an in-memory JsonbcValue into a Jsonbc for on-disk storage.
@@ -360,6 +372,9 @@ findJsonbcValueFromContainer(JsonbcContainer *container, uint32 flags,
 		char	   *base_addr = (char *) (children + count * 2);
 		uint32		stopLow = 0,
 					stopHigh = count;
+		int32		keyId;
+
+		keyId = convertKeyNameToId(key);
 
 		/* Object key passed by caller must be a string */
 		Assert(key->type == jbvString);
@@ -368,32 +383,23 @@ findJsonbcValueFromContainer(JsonbcContainer *container, uint32 flags,
 		while (stopLow < stopHigh)
 		{
 			uint32		stopMiddle;
-			int			difference;
-			JsonbcValue	candidate;
+			int32		candidate;
 
 			stopMiddle = stopLow + (stopHigh - stopLow) / 2;
 
-			candidate.type = jbvString;
-			candidate.val.string.val =
-				base_addr + getJsonbcOffset(container, stopMiddle);
-			candidate.val.string.len = getJsonbcLength(container, stopMiddle);
+			candidate = (int32) container->children[stopMiddle + count];
 
-			difference = lengthCompareJsonbcStringValue(&candidate, key);
-
-			if (difference == 0)
+			if (candidate == keyId)
 			{
-				/* Found our key, return corresponding value */
-				int			index = stopMiddle + count;
-
-				fillJsonbcValue(container, index, base_addr,
-							   getJsonbcOffset(container, index),
+				fillJsonbcValue(container, stopMiddle, base_addr,
+							   getJsonbcOffset(container, stopMiddle),
 							   result);
 
 				return result;
 			}
 			else
 			{
-				if (difference < 0)
+				if (candidate < keyId)
 					stopLow = stopMiddle + 1;
 				else
 					stopHigh = stopMiddle;
@@ -629,7 +635,7 @@ appendKey(JsonbcParseState *pstate, JsonbcValue *string)
 											sizeof(JsonbcPair) * pstate->size);
 	}
 
-	object->val.object.pairs[object->val.object.nPairs].key = *string;
+	object->val.object.pairs[object->val.object.nPairs].key = convertKeyNameToId(string);
 	object->val.object.pairs[object->val.object.nPairs].order = object->val.object.nPairs;
 }
 
@@ -794,8 +800,7 @@ recurse:
 			 */
 			(*it)->curIndex = 0;
 			(*it)->curDataOffset = 0;
-			(*it)->curValueOffset = getJsonbcOffset((*it)->container,
-												   (*it)->nElems);
+			(*it)->curValueOffset = 0;	/* not actually used */
 			/* Set state for next call */
 			(*it)->state = JBI_OBJECT_KEY;
 			return WJB_BEGIN_OBJECT;
@@ -814,12 +819,11 @@ recurse:
 			}
 			else
 			{
-				/* Return key of a key/value pair.  */
-				fillJsonbcValue((*it)->container, (*it)->curIndex,
-							   (*it)->dataProper, (*it)->curDataOffset,
-							   val);
-				if (val->type != jbvString)
-					elog(ERROR, "unexpected jsonbc type as object key");
+				KeyName keyName = getNameById((int32)(*it)->container->children[(*it)->curIndex  + (*it)->nElems]);
+
+				val->type = jbvString;
+				val->val.string.val = keyName.s;
+				val->val.string.len = keyName.len;
 
 				/* Set state for next call */
 				(*it)->state = JBI_OBJECT_VALUE;
@@ -830,14 +834,12 @@ recurse:
 			/* Set state for next call */
 			(*it)->state = JBI_OBJECT_KEY;
 
-			fillJsonbcValue((*it)->container, (*it)->curIndex + (*it)->nElems,
-						   (*it)->dataProper, (*it)->curValueOffset,
+			fillJsonbcValue((*it)->container, (*it)->curIndex,
+						   (*it)->dataProper, (*it)->curDataOffset,
 						   val);
 
 			JBE_ADVANCE_OFFSET((*it)->curDataOffset,
-							   (*it)->children[(*it)->curIndex]);
-			JBE_ADVANCE_OFFSET((*it)->curValueOffset,
-						   (*it)->children[(*it)->curIndex + (*it)->nElems]);
+						   (*it)->children[(*it)->curIndex]);
 			(*it)->curIndex++;
 
 			/*
@@ -1552,10 +1554,10 @@ convertJsonbcObject(StringInfo buffer, JEntry *pheader, JsonbcValue *val, int le
 		JEntry		meta;
 
 		/*
-		 * Convert key, producing a JEntry and appending its variable-length
+		 * Convert value, producing a JEntry and appending its variable-length
 		 * data to buffer
 		 */
-		convertJsonbcScalar(buffer, &meta, &pair->key);
+		convertJsonbcValue(buffer, &meta, &pair->value, level + 1);
 
 		len = JBE_OFFLENFLD(meta);
 		totallen += len;
@@ -1583,34 +1585,9 @@ convertJsonbcObject(StringInfo buffer, JEntry *pheader, JsonbcValue *val, int le
 	for (i = 0; i < nPairs; i++)
 	{
 		JsonbcPair  *pair = &val->val.object.pairs[i];
-		int			len;
 		JEntry		meta;
 
-		/*
-		 * Convert value, producing a JEntry and appending its variable-length
-		 * data to buffer
-		 */
-		convertJsonbcValue(buffer, &meta, &pair->value, level + 1);
-
-		len = JBE_OFFLENFLD(meta);
-		totallen += len;
-
-		/*
-		 * Bail out if total variable-length data exceeds what will fit in a
-		 * JEntry length field.  We check this in each iteration, not just
-		 * once at the end, to forestall possible integer overflow.
-		 */
-		if (totallen > JENTRY_OFFLENMASK)
-			ereport(ERROR,
-					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
-					 errmsg("total size of jsonbc object elements exceeds the maximum of %u bytes",
-							JENTRY_OFFLENMASK)));
-
-		/*
-		 * Convert each JB_OFFSET_STRIDE'th length to an offset.
-		 */
-		if (((i + nPairs) % JB_OFFSET_STRIDE) == 0)
-			meta = (meta & JENTRY_TYPEMASK) | totallen | JENTRY_HAS_OFF;
+		meta = (JEntry)pair->key;
 
 		copyToBuffer(buffer, jentry_offset, (char *) &meta, sizeof(JEntry));
 		jentry_offset += sizeof(JEntry);
@@ -1713,24 +1690,18 @@ lengthCompareJsonbcStringValue(const void *a, const void *b)
  * Pairs with equals keys are ordered such that the order field is respected.
  */
 static int
-lengthCompareJsonbcPair(const void *a, const void *b, void *binequal)
+compareJsonbcPair(const void *a, const void *b, void *binequal)
 {
 	const JsonbcPair *pa = (const JsonbcPair *) a;
 	const JsonbcPair *pb = (const JsonbcPair *) b;
-	int			res;
 
-	res = lengthCompareJsonbcStringValue(&pa->key, &pb->key);
-	if (res == 0 && binequal)
+	if (pa->key != pb->key)
+		return (pa->key < pb->key) ? -1 : 1;
+
+	if (binequal)
 		*((bool *) binequal) = true;
 
-	/*
-	 * Guarantee keeping order of equal pair.  Unique algorithm will prefer
-	 * first element as value.
-	 */
-	if (res == 0)
-		res = (pa->order > pb->order) ? -1 : 1;
-
-	return res;
+	return (pa->order > pb->order) ? -1 : 1;
 }
 
 /*
@@ -1745,7 +1716,7 @@ uniqueifyJsonbcObject(JsonbcValue *object)
 
 	if (object->val.object.nPairs > 1)
 		qsort_arg(object->val.object.pairs, object->val.object.nPairs, sizeof(JsonbcPair),
-				  lengthCompareJsonbcPair, &hasNonUniq);
+				compareJsonbcPair, &hasNonUniq);
 
 	if (hasNonUniq)
 	{

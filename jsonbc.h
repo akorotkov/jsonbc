@@ -287,7 +287,7 @@ struct JsonbcValue
  */
 struct JsonbcPair
 {
-	JsonbcValue	key;			/* Must be a jbvString */
+	int32		key;
 	JsonbcValue	value;			/* May be of any type */
 	uint32		order;			/* Pair's index in original sequence */
 };
