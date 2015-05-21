@@ -357,6 +357,109 @@ compareJsonbcContainers(JsonbcContainer *a, JsonbcContainer *b)
 }
 
 /*
+ * Get i-th value of a Jsonbc array.
+ *
+ * Returns palloc()'d copy of the value, or NULL if it does not exist.
+ */
+static JsonbcValue *
+getKeyJsonbcValueFromObject(uint32 header, unsigned char *ptr, uint32 keyId)
+{
+	JsonbcValue	   *result;
+	unsigned char  *end, *chunkHeader, *chunkPtr;
+	uint32			offset = 0;
+	int				j = 0, jj;
+	JEntry			entry;
+
+	if ((header >> JB_CSHIFT) <= 0)
+		return NULL;
+
+	end = ptr + (header >> JB_CSHIFT);
+
+	if ((header & JB_MASK) != JB_FOBJECT)
+		return NULL;
+
+	chunkHeader = ptr + JB_OFFSETS_CHUNK_SIZE;
+
+	while (chunkHeader < end)
+	{
+		chunkPtr = chunkHeader;
+		jj = decode_varbyte(&chunkPtr);
+		if (jj >= keyId)
+			break;
+		j = jj;
+		offset = decode_varbyte(&chunkPtr);
+		ptr = chunkPtr;
+
+		chunkHeader += JB_OFFSETS_CHUNK_SIZE;
+	}
+
+	while (j < keyId)
+	{
+		entry = decode_varbyte(&ptr);
+		if (entry == 0 || ptr > chunkHeader || ptr > end)
+			return NULL;
+		j += entry;
+		entry = decode_varbyte(&ptr);
+		if (j == keyId)
+		{
+			result = palloc(sizeof(JsonbcValue));
+			fillJsonbcValue(entry, (char *)end, offset, result);
+			return result;
+		}
+		offset += (entry >> JENTRY_SHIFT);
+	}
+
+	return NULL;
+}
+
+/*
+ * Get i-th value of a Jsonbc array.
+ *
+ * Returns palloc()'d copy of the value, or NULL if it does not exist.
+ */
+static JsonbcValue *
+findJsonbcValueInArray(uint32 header, unsigned char *ptr, JsonbcValue *key)
+{
+	JsonbcValue	   *result;
+	unsigned char  *end, *chunkHeader;
+	uint32			offset = 0;
+	JEntry			entry;
+
+	end = ptr + (header >> JB_CSHIFT);
+
+	if ((header & JB_MASK) != JB_FARRAY && (header & JB_MASK) != JB_FSCALAR)
+		return NULL;
+
+	chunkHeader = ptr + JB_OFFSETS_CHUNK_SIZE;
+
+	result = palloc(sizeof(JsonbcValue));
+	while (ptr < end)
+	{
+		entry = decode_varbyte(&ptr);
+		if (entry == 0 || ptr >= chunkHeader)
+		{
+			ptr = chunkHeader;
+			decode_varbyte(&chunkHeader);
+			decode_varbyte(&chunkHeader);
+			chunkHeader += JB_OFFSETS_CHUNK_SIZE;
+		}
+
+		fillJsonbcValue(entry, (char  *)end, offset, result);
+
+		if (key->type == result->type)
+		{
+			if (equalsJsonbcScalarValue(key, result))
+				return result;
+		}
+
+		offset += (entry >> JENTRY_SHIFT);
+	}
+	pfree(result);
+	return NULL;
+}
+
+
+/*
  * Find value in object (i.e. the "value" part of some key/value pair in an
  * object), or find a matching element if we're looking through an array.  Do
  * so on the basis of equality of the object keys only, or alternatively
@@ -386,82 +489,28 @@ JsonbcValue *
 findJsonbcValueFromContainer(JsonbcContainer *container, uint32 flags,
 							JsonbcValue *key)
 {
-#ifdef NOT_USED
-	JEntry	   *children = container->children;
-	int			count = (container->header & JB_CMASK);
-	JsonbcValue *result;
+	unsigned char *ptr;
+	uint32 header;
 
-	Assert((flags & ~(JB_FARRAY | JB_FOBJECT)) == 0);
+	ptr = (unsigned char *)container->data;
+	header = decode_varbyte(&ptr);
 
-	/* Quick out without a palloc cycle if object/array is empty */
-	if (count <= 0)
-		return NULL;
-
-	result = palloc(sizeof(JsonbcValue));
-
-	if (flags & JB_FARRAY & container->header)
+	if ((flags & JB_FARRAY) && ((header & JB_MASK) == JB_FARRAY || (header & JB_MASK) == JB_FSCALAR))
 	{
-		char	   *base_addr = (char *) (children + count);
-		uint32		offset = 0;
-		int			i;
-
-		for (i = 0; i < count; i++)
-		{
-			fillJsonbcValue(container, i, base_addr, offset, result);
-
-			if (key->type == result->type)
-			{
-				if (equalsJsonbcScalarValue(key, result))
-					return result;
-			}
-
-			JBE_ADVANCE_OFFSET(offset, children[i]);
-		}
+		return findJsonbcValueInArray(header, ptr, key);
 	}
-	else if (flags & JB_FOBJECT & container->header)
+	else if (flags & JB_FOBJECT && (header & JB_MASK) == JB_FOBJECT)
 	{
-		/* Since this is an object, account for *Pairs* of Jentrys */
-		char	   *base_addr = (char *) (children + count * 2);
-		uint32		stopLow = 0,
-					stopHigh = count;
 		int32		keyId;
-
-		keyId = convertKeyNameToId(key);
 
 		/* Object key passed by caller must be a string */
 		Assert(key->type == jbvString);
 
-		/* Binary search on object/pair keys *only* */
-		while (stopLow < stopHigh)
-		{
-			uint32		stopMiddle;
-			int32		candidate;
+		keyId = convertKeyNameToId(key);
 
-			stopMiddle = stopLow + (stopHigh - stopLow) / 2;
-
-			candidate = (int32) container->children[stopMiddle + count];
-
-			if (candidate == keyId)
-			{
-				fillJsonbcValue(container, stopMiddle, base_addr,
-							   getJsonbcOffset(container, stopMiddle),
-							   result);
-
-				return result;
-			}
-			else
-			{
-				if (candidate < keyId)
-					stopLow = stopMiddle + 1;
-				else
-					stopHigh = stopMiddle;
-			}
-		}
+		return getKeyJsonbcValueFromObject(header, ptr, keyId);
 	}
 
-	/* Not found */
-	pfree(result);
-#endif
 	return NULL;
 }
 
@@ -473,29 +522,53 @@ findJsonbcValueFromContainer(JsonbcContainer *container, uint32 flags,
 JsonbcValue *
 getIthJsonbcValueFromContainer(JsonbcContainer *container, uint32 i)
 {
-#ifdef NOT_USED
-	JsonbcValue *result;
-	char	   *base_addr;
-	uint32		nelements;
+	uint32			header;
+	JsonbcValue	   *result;
+	unsigned char  *ptr, *end, *chunkHeader, *chunkPtr;
+	uint32			offset = 0;
+	int				j = 0, jj;
+	JEntry			entry;
 
-	if ((container->header & JB_FARRAY) == 0)
+	ptr = (unsigned char *)container->data;
+	header = decode_varbyte(&ptr);
+	end = ptr + (header >> JB_CSHIFT);
+
+	if ((header & JB_MASK) != JB_FARRAY && (header & JB_MASK) != JB_FSCALAR)
 		elog(ERROR, "not a jsonbc array");
 
-	nelements = container->header & JB_CMASK;
-	base_addr = (char *) &container->children[nelements];
+	chunkHeader = ptr + JB_OFFSETS_CHUNK_SIZE;
 
-	if (i >= nelements)
+	while (chunkHeader < end)
+	{
+		chunkPtr = chunkHeader;
+		jj = decode_varbyte(&chunkPtr);
+		if (jj > i)
+			break;
+		j = jj;
+		offset = decode_varbyte(&chunkPtr);
+		ptr = chunkPtr;
+
+		chunkHeader += JB_OFFSETS_CHUNK_SIZE;
+	}
+
+	while (j < i)
+	{
+		entry = decode_varbyte(&ptr);
+		if (entry == 0 || ptr > chunkHeader || ptr > end)
+			return NULL;
+		offset += (entry >> JENTRY_SHIFT);
+		j++;
+	}
+
+	entry = decode_varbyte(&ptr);
+	if (entry == 0 || ptr > chunkHeader || ptr > end)
 		return NULL;
 
 	result = palloc(sizeof(JsonbcValue));
 
-	fillJsonbcValue(container, i, base_addr,
-				   getJsonbcOffset(container, i),
-				   result);
+	fillJsonbcValue(entry, (char *)end, offset, result);
 
 	return result;
-#endif
-	return NULL;
 }
 
 /*
@@ -827,7 +900,23 @@ recurse:
 				return WJB_END_ARRAY;
 			}
 
+			if ((*it)->childrenPtr >= (*it)->chunkEnd)
+			{
+				(*it)->childrenPtr = (*it)->chunkEnd;
+				decode_varbyte(&(*it)->childrenPtr);
+				decode_varbyte(&(*it)->childrenPtr);
+				(*it)->chunkEnd += JB_OFFSETS_CHUNK_SIZE;
+			}
+
 			entry = decode_varbyte(&(*it)->childrenPtr);
+			if (entry == 0)
+			{
+				(*it)->childrenPtr = (*it)->chunkEnd;
+				decode_varbyte(&(*it)->childrenPtr);
+				decode_varbyte(&(*it)->childrenPtr);
+				entry = decode_varbyte(&(*it)->childrenPtr);
+				(*it)->chunkEnd += JB_OFFSETS_CHUNK_SIZE;
+			}
 
 			fillJsonbcValue(entry,
 						   (*it)->dataProper, (*it)->curDataOffset,
@@ -881,7 +970,24 @@ recurse:
 			}
 			else
 			{
+				if ((*it)->childrenPtr >= (*it)->chunkEnd)
+				{
+					(*it)->childrenPtr = (*it)->chunkEnd;
+					decode_varbyte(&(*it)->childrenPtr);
+					decode_varbyte(&(*it)->childrenPtr);
+					(*it)->chunkEnd += JB_OFFSETS_CHUNK_SIZE;
+				}
+
 				keyIncr = decode_varbyte(&(*it)->childrenPtr);
+				if (entry == 0)
+				{
+					(*it)->childrenPtr = (*it)->chunkEnd;
+					decode_varbyte(&(*it)->childrenPtr);
+					decode_varbyte(&(*it)->childrenPtr);
+					keyIncr = decode_varbyte(&(*it)->childrenPtr);
+					(*it)->chunkEnd += JB_OFFSETS_CHUNK_SIZE;
+				}
+
 				(*it)->curKey += keyIncr;
 
 				KeyName keyName = getNameById((*it)->curKey);
@@ -945,6 +1051,7 @@ iteratorFromContainer(JsonbcContainer *container, JsonbcIterator *parent)
 
 	/* Array starts just after header */
 	it->children = ptr;
+	it->chunkEnd = ptr + JB_OFFSETS_CHUNK_SIZE;
 	it->dataProper = (char *)(ptr + it->childrenSize);
 
 	switch (header & JB_MASK)
@@ -1507,13 +1614,13 @@ convertJsonbcArray(StringInfo buffer, JEntry *pheader, JsonbcValue *val, int lev
 	int			base_offset;
 	int			i;
 	int			totallen, offsets_len;
-	unsigned char *offsets, *ptr;
+	unsigned char *offsets, *ptr, *chunk_end;
 	JEntry		header;
 
 	int			nElems = val->val.array.nElems;
 
 	offsets_len = MAX_VARBYTE_SIZE * nElems;
-	offsets_len += offsets_len / (JB_OFFSETS_CHUNK_SIZE - MAX_VARBYTE_SIZE + 1) * sizeof(JsonbcChunkHeader);
+	offsets_len += offsets_len / (JB_OFFSETS_CHUNK_SIZE - MAX_VARBYTE_SIZE + 1) * (2 * MAX_VARBYTE_SIZE);
 
 	offsets = (unsigned char *)palloc(offsets_len);
 
@@ -1522,6 +1629,7 @@ convertJsonbcArray(StringInfo buffer, JEntry *pheader, JsonbcValue *val, int lev
 
 	/* Reserve space for the JEntries of the elements. */
 	ptr = offsets;
+	chunk_end = offsets + JB_OFFSETS_CHUNK_SIZE;
 
 	totallen = 0;
 	for (i = 0; i < nElems; i++)
@@ -1535,6 +1643,15 @@ convertJsonbcArray(StringInfo buffer, JEntry *pheader, JsonbcValue *val, int lev
 		 * variable-length data to buffer
 		 */
 		convertJsonbcValue(buffer, &meta, elem, level + 1);
+
+		if (ptr + varbyte_size(meta) > chunk_end)
+		{
+			memset(ptr, 0, chunk_end - ptr);
+			ptr = chunk_end;
+			encode_varbyte(i, &ptr);
+			encode_varbyte(totallen, &ptr);
+			chunk_end += JB_OFFSETS_CHUNK_SIZE;
+		}
 
 		len = JBE_OFFLENFLD(meta);
 		totallen += len;
@@ -1596,7 +1713,7 @@ convertJsonbcObject(StringInfo buffer, JEntry *pheader, JsonbcValue *val, int le
 	int			base_offset;
 	int			i;
 	int			totallen, offsets_len;
-	unsigned char *offsets, *ptr;
+	unsigned char *offsets, *ptr, *chunk_end;
 	JEntry		header;
 	int			nPairs = val->val.object.nPairs;
 	uint32		prev_key;
@@ -1604,8 +1721,12 @@ convertJsonbcObject(StringInfo buffer, JEntry *pheader, JsonbcValue *val, int le
 	/* Remember where in the buffer this object starts. */
 	base_offset = buffer->len;
 
-	offsets = (unsigned char *) palloc(MAX_VARBYTE_SIZE * nPairs * 2);
+	offsets_len = MAX_VARBYTE_SIZE * nPairs * 2;
+	offsets_len += offsets_len / (JB_OFFSETS_CHUNK_SIZE - 2 * MAX_VARBYTE_SIZE + 1) * (2 * MAX_VARBYTE_SIZE);
+
+	offsets = (unsigned char *) palloc(offsets_len);
 	ptr = offsets;
+	chunk_end = offsets + JB_OFFSETS_CHUNK_SIZE;
 
 	/*
 	 * Iterate over the keys, then over the values, since that is the ordering
@@ -1625,6 +1746,17 @@ convertJsonbcObject(StringInfo buffer, JEntry *pheader, JsonbcValue *val, int le
 		 */
 		convertJsonbcValue(buffer, &meta, &pair->value, level + 1);
 
+		Assert(pair->key > prev_key);
+
+		if (ptr + varbyte_size(pair->key - prev_key) + varbyte_size(meta) > chunk_end)
+		{
+			memset(ptr, 0, chunk_end - ptr);
+			ptr = chunk_end;
+			encode_varbyte(prev_key, &ptr);
+			encode_varbyte(totallen, &ptr);
+			chunk_end += JB_OFFSETS_CHUNK_SIZE;
+		}
+
 		len = JBE_OFFLENFLD(meta);
 		totallen += len;
 
@@ -1639,7 +1771,6 @@ convertJsonbcObject(StringInfo buffer, JEntry *pheader, JsonbcValue *val, int le
 					 errmsg("total size of jsonbc object elements exceeds the maximum of %u bytes",
 							JENTRY_OFFLENMASK)));
 
-		Assert(pair->key > prev_key);
 		encode_varbyte(pair->key - prev_key, &ptr);
 		encode_varbyte(meta, &ptr);
 

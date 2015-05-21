@@ -185,12 +185,6 @@ typedef uint32 JEntry;
 
 #define	JB_OFFSETS_CHUNK_SIZE	32
 
-typedef struct
-{
-	int32	key;
-	int32	offset;
-} JsonbcChunkHeader;
-
 /*
  * A jsonbc array or object node, within a Jsonbc Datum.
  *
@@ -332,6 +326,7 @@ typedef struct JsonbcIterator
 	bool		isScalar;		/* Pseudo-array scalar value? */
 	unsigned char	   *children;		/* JEntrys for child nodes */
 	unsigned char	   *childrenPtr;
+	unsigned char	   *chunkEnd;
 	/* Data proper.  This points to the beginning of the variable-length data */
 	char	   *dataProper;
 
