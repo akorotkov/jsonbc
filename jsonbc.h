@@ -138,20 +138,22 @@ typedef struct JsonbcValue JsonbcValue;
  */
 typedef uint32 JEntry;
 
-#define JENTRY_OFFLENMASK		0x0FFFFFFF
-#define JENTRY_TYPEMASK			0x70000000
-#define JENTRY_HAS_OFF			0x80000000
+#define JENTRY_SHIFT			0x3
+#define JENTRY_OFFLENMASK		0x10000000
+
+#define JENTRY_TYPEMASK			0x7
 
 /* values stored in the type bits */
-#define JENTRY_ISSTRING			0x00000000
-#define JENTRY_ISNUMERIC		0x10000000
-#define JENTRY_ISBOOL_FALSE		0x20000000
-#define JENTRY_ISBOOL_TRUE		0x30000000
-#define JENTRY_ISNULL			0x40000000
-#define JENTRY_ISCONTAINER		0x50000000		/* array or object */
+#define JENTRY_ISSTRING			0x0
+#define JENTRY_ISNUMERIC		0x1
+#define JENTRY_ISINTEGER		0x2
+#define JENTRY_ISBOOL_FALSE		0x3
+#define JENTRY_ISBOOL_TRUE		0x4
+#define JENTRY_ISNULL			0x5
+#define JENTRY_ISCONTAINER		0x6 /* array or object */
 
 /* Access macros.  Note possible multiple evaluations */
-#define JBE_OFFLENFLD(je_)		((je_) & JENTRY_OFFLENMASK)
+#define JBE_OFFLENFLD(je_)		((je_) >> JENTRY_SHIFT)
 #define JBE_HAS_OFF(je_)		(((je_) & JENTRY_HAS_OFF) != 0)
 #define JBE_ISSTRING(je_)		(((je_) & JENTRY_TYPEMASK) == JENTRY_ISSTRING)
 #define JBE_ISNUMERIC(je_)		(((je_) & JENTRY_TYPEMASK) == JENTRY_ISNUMERIC)
@@ -160,6 +162,7 @@ typedef uint32 JEntry;
 #define JBE_ISBOOL_TRUE(je_)	(((je_) & JENTRY_TYPEMASK) == JENTRY_ISBOOL_TRUE)
 #define JBE_ISBOOL_FALSE(je_)	(((je_) & JENTRY_TYPEMASK) == JENTRY_ISBOOL_FALSE)
 #define JBE_ISBOOL(je_)			(JBE_ISBOOL_TRUE(je_) || JBE_ISBOOL_FALSE(je_))
+#define JBE_ISINTEGER(je_)		(((je_) & JENTRY_TYPEMASK) == JENTRY_ISINTEGER)
 
 /* Macro for advancing an offset variable to the next JEntry */
 #define JBE_ADVANCE_OFFSET(offset, je) \
@@ -180,6 +183,14 @@ typedef uint32 JEntry;
  */
 #define JB_OFFSET_STRIDE		32
 
+#define	JB_OFFSETS_CHUNK_SIZE	32
+
+typedef struct
+{
+	int32	key;
+	int32	offset;
+} JsonbcChunkHeader;
+
 /*
  * A jsonbc array or object node, within a Jsonbc Datum.
  *
@@ -192,18 +203,17 @@ typedef uint32 JEntry;
  */
 typedef struct JsonbcContainer
 {
-	uint32		header;			/* number of elements or key/value pairs, and
-								 * flags */
-	JEntry		children[1];	/* variable length */
+	char	data[1];
 
 	/* the data for each child node follows. */
 } JsonbcContainer;
 
 /* flags for the header-field in JsonbcContainer */
-#define JB_CMASK				0x0FFFFFFF		/* mask for count field */
-#define JB_FSCALAR				0x10000000		/* flag bits */
-#define JB_FOBJECT				0x20000000
-#define JB_FARRAY				0x40000000
+#define JB_CSHIFT				2
+#define JB_FSCALAR				0
+#define JB_FOBJECT				1
+#define JB_FARRAY				2
+#define JB_MASK					3
 
 /* The top-level on-disk format for a jsonbc datum. */
 typedef struct
@@ -213,7 +223,7 @@ typedef struct
 } Jsonbc;
 
 /* convenience macros for accessing the root container in a Jsonbc datum */
-#define JB_ROOT_COUNT(jbp_)		( *(uint32*) VARDATA(jbp_) & JB_CMASK)
+#define JB_ROOT_COUNT(jbp_)		( *(uint32*) VARDATA(jbp_) >> JB_CSHIFT)
 #define JB_ROOT_IS_SCALAR(jbp_) ( *(uint32*) VARDATA(jbp_) & JB_FSCALAR)
 #define JB_ROOT_IS_OBJECT(jbp_) ( *(uint32*) VARDATA(jbp_) & JB_FOBJECT)
 #define JB_ROOT_IS_ARRAY(jbp_)	( *(uint32*) VARDATA(jbp_) & JB_FARRAY)
@@ -317,15 +327,14 @@ typedef struct JsonbcIterator
 {
 	/* Container being iterated */
 	JsonbcContainer *container;
-	uint32		nElems;			/* Number of elements in children array (will
-								 * be nPairs for objects) */
+	uint32		childrenSize;
+	uint32		curKey;
 	bool		isScalar;		/* Pseudo-array scalar value? */
-	JEntry	   *children;		/* JEntrys for child nodes */
+	unsigned char	   *children;		/* JEntrys for child nodes */
+	unsigned char	   *childrenPtr;
 	/* Data proper.  This points to the beginning of the variable-length data */
 	char	   *dataProper;
 
-	/* Current item in buffer (up to nElems) */
-	int			curIndex;
 
 	/* Data offset corresponding to current item */
 	uint32		curDataOffset;
@@ -398,7 +407,6 @@ extern Datum gin_triconsistent_jsonbc_path(PG_FUNCTION_ARGS);
 
 /* Support functions */
 extern uint32 getJsonbcOffset(const JsonbcContainer *jc, int index);
-extern uint32 getJsonbcLength(const JsonbcContainer *jc, int index);
 extern int	compareJsonbcContainers(JsonbcContainer *a, JsonbcContainer *b);
 extern JsonbcValue *findJsonbcValueFromContainer(JsonbcContainer *sheader,
 							uint32 flags,
@@ -418,5 +426,9 @@ extern void JsonbcHashScalarValue(const JsonbcValue *scalarVal, uint32 *hash);
 /* jsonbc.c support function */
 extern char *JsonbcToCString(StringInfo out, JsonbcContainer *in,
 			   int estimated_len);
+
+/* numeric_utils.c support function */
+extern bool numeric_get_small(Numeric value, uint32 *out);
+extern Numeric small_to_numeric(uint32 value);
 
 #endif   /* __JSONB_H__ */
