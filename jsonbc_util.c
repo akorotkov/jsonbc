@@ -1948,7 +1948,7 @@ uniqueifyJsonbcObject(JsonbcValue *object)
 		while (ptr - object->val.object.pairs < object->val.object.nPairs)
 		{
 			/* Avoid copying over duplicate */
-			if (lengthCompareJsonbcStringValue(ptr, res) != 0)
+			if (ptr->key != res->key)
 			{
 				res++;
 				if (ptr != res)

@@ -1780,25 +1780,25 @@ SELECT octet_length((jsonbc '{ "a":  "\ud83d\ude04\ud83d\udc36" }' -> 'a')::text
 SELECT jsonbc '{ "a":  "\ud83d\ud83d" }' -> 'a'; -- 2 high surrogates in a row
 ERROR:  invalid input syntax for type json
 LINE 1: SELECT jsonbc '{ "a":  "\ud83d\ud83d" }' -> 'a';
-                     ^
+                      ^
 DETAIL:  Unicode high surrogate must not follow a high surrogate.
 CONTEXT:  JSON data, line 1: { "a":...
 SELECT jsonbc '{ "a":  "\ude04\ud83d" }' -> 'a'; -- surrogates in wrong order
 ERROR:  invalid input syntax for type json
 LINE 1: SELECT jsonbc '{ "a":  "\ude04\ud83d" }' -> 'a';
-                     ^
+                      ^
 DETAIL:  Unicode low surrogate must follow a high surrogate.
 CONTEXT:  JSON data, line 1: { "a":...
 SELECT jsonbc '{ "a":  "\ud83dX" }' -> 'a'; -- orphan high surrogate
 ERROR:  invalid input syntax for type json
 LINE 1: SELECT jsonbc '{ "a":  "\ud83dX" }' -> 'a';
-                     ^
+                      ^
 DETAIL:  Unicode low surrogate must follow a high surrogate.
 CONTEXT:  JSON data, line 1: { "a":...
 SELECT jsonbc '{ "a":  "\ude04X" }' -> 'a'; -- orphan low surrogate
 ERROR:  invalid input syntax for type json
 LINE 1: SELECT jsonbc '{ "a":  "\ude04X" }' -> 'a';
-                     ^
+                      ^
 DETAIL:  Unicode low surrogate must follow a high surrogate.
 CONTEXT:  JSON data, line 1: { "a":...
 -- handling of simple unicode escapes
@@ -1823,7 +1823,7 @@ SELECT jsonbc '{ "a":  "dollar \\u0024 character" }' as not_an_escape;
 SELECT jsonbc '{ "a":  "null \u0000 escape" }' as fails;
 ERROR:  unsupported Unicode escape sequence
 LINE 1: SELECT jsonbc '{ "a":  "null \u0000 escape" }' as fails;
-                     ^
+                      ^
 DETAIL:  \u0000 cannot be converted to text.
 CONTEXT:  JSON data, line 1: { "a":...
 SELECT jsonbc '{ "a":  "null \\u0000 escape" }' as not_an_escape;
@@ -1852,8 +1852,8 @@ SELECT jsonbc '{ "a":  "dollar \\u0024 character" }' ->> 'a' as not_an_escape;
 
 SELECT jsonbc '{ "a":  "null \u0000 escape" }' ->> 'a' as fails;
 ERROR:  unsupported Unicode escape sequence
-LINE 1: SELECT jsonbc '{ "a":  "null \u0000 escape" }' ->> 'a' as fai...
-                     ^
+LINE 1: SELECT jsonbc '{ "a":  "null \u0000 escape" }' ->> 'a' as fa...
+                      ^
 DETAIL:  \u0000 cannot be converted to text.
 CONTEXT:  JSON data, line 1: { "a":...
 SELECT jsonbc '{ "a":  "null \\u0000 escape" }' ->> 'a' as not_an_escape;
@@ -2162,37 +2162,37 @@ RESET enable_seqscan;
 DROP INDEX jidx;
 -- nested tests
 SELECT '{"ff":{"a":12,"b":16}}'::jsonbc;
-           jsonbc            
+           jsonbc           
 ----------------------------
  {"ff": {"a": 12, "b": 16}}
 (1 row)
 
 SELECT '{"ff":{"a":12,"b":16},"qq":123}'::jsonbc;
-                 jsonbc                 
+                jsonbc                 
 ---------------------------------------
  {"ff": {"a": 12, "b": 16}, "qq": 123}
 (1 row)
 
 SELECT '{"aa":["a","aaa"],"qq":{"a":12,"b":16,"c":["c1","c2"],"d":{"d1":"d1","d2":"d2","d1":"d3"}}}'::jsonbc;
-                                              jsonbc                                               
+                                              jsonbc                                              
 --------------------------------------------------------------------------------------------------
- {"aa": ["a", "aaa"], "qq": {"a": 12, "b": 16, "c": ["c1", "c2"], "d": {"d1": "d3", "d2": "d2"}}}
+ {"qq": {"a": 12, "b": 16, "c": ["c1", "c2"], "d": {"d1": "d3", "d2": "d2"}}, "aa": ["a", "aaa"]}
 (1 row)
 
 SELECT '{"aa":["a","aaa"],"qq":{"a":"12","b":"16","c":["c1","c2"],"d":{"d1":"d1","d2":"d2"}}}'::jsonbc;
-                                                jsonbc                                                 
+                                                jsonbc                                                
 ------------------------------------------------------------------------------------------------------
- {"aa": ["a", "aaa"], "qq": {"a": "12", "b": "16", "c": ["c1", "c2"], "d": {"d1": "d1", "d2": "d2"}}}
+ {"qq": {"a": "12", "b": "16", "c": ["c1", "c2"], "d": {"d1": "d1", "d2": "d2"}}, "aa": ["a", "aaa"]}
 (1 row)
 
 SELECT '{"aa":["a","aaa"],"qq":{"a":"12","b":"16","c":["c1","c2",["c3"],{"c4":4}],"d":{"d1":"d1","d2":"d2"}}}'::jsonbc;
-                                                          jsonbc                                                          
+                                                         jsonbc                                                          
 -------------------------------------------------------------------------------------------------------------------------
- {"aa": ["a", "aaa"], "qq": {"a": "12", "b": "16", "c": ["c1", "c2", ["c3"], {"c4": 4}], "d": {"d1": "d1", "d2": "d2"}}}
+ {"qq": {"a": "12", "b": "16", "c": ["c1", "c2", ["c3"], {"c4": 4}], "d": {"d1": "d1", "d2": "d2"}}, "aa": ["a", "aaa"]}
 (1 row)
 
 SELECT '{"ff":["a","aaa"]}'::jsonbc;
-        jsonbc         
+        jsonbc        
 ----------------------
  {"ff": ["a", "aaa"]}
 (1 row)

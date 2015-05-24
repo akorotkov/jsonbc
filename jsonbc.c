@@ -56,13 +56,13 @@ PG_FUNCTION_INFO_V1(jsonbc_send);
 PG_FUNCTION_INFO_V1(jsonbc_to_record);
 PG_FUNCTION_INFO_V1(jsonbc_to_recordset);
 PG_FUNCTION_INFO_V1(jsonbc_typeof);
-PG_FUNCTION_INFO_V1(gin_extract_jsonb);
-PG_FUNCTION_INFO_V1(gin_extract_jsonbc_hash);
+PG_FUNCTION_INFO_V1(gin_extract_jsonbc);
+PG_FUNCTION_INFO_V1(gin_extract_jsonbc_path);
 PG_FUNCTION_INFO_V1(gin_extract_jsonbc_query);
-PG_FUNCTION_INFO_V1(gin_extract_jsonbc_query_hash);
-PG_FUNCTION_INFO_V1(gin_consistent_jsonb);
-PG_FUNCTION_INFO_V1(gin_consistent_jsonbc_hash);
-PG_FUNCTION_INFO_V1(gin_compare_jsonb);
+PG_FUNCTION_INFO_V1(gin_extract_jsonbc_query_path);
+PG_FUNCTION_INFO_V1(gin_consistent_jsonbc);
+PG_FUNCTION_INFO_V1(gin_consistent_jsonbc_path);
+PG_FUNCTION_INFO_V1(gin_compare_jsonbc);
 
 typedef struct JsonbcInState
 {

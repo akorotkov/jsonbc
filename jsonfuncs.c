@@ -2030,8 +2030,6 @@ populate_record_worker(FunctionCallInfo fcinfo, const char *funcname,
 	Datum	   *values;
 	bool	   *nulls;
 
-	Assert(jtype == JSONOID || jtype == JSONBOID);
-
 	if (have_record_arg)
 	{
 		Oid			argtype = get_fn_expr_argtype(fcinfo->flinfo, 0);
@@ -2206,7 +2204,7 @@ populate_record_worker(FunctionCallInfo fcinfo, const char *funcname,
 		 * the input function just in case it's a domain type.
 		 */
 		if (((jtype == JSONOID && hashentry == NULL) ||
-			 (jtype == JSONBOID && v == NULL)) && rec)
+			 (jtype != JSONOID && v == NULL)) && rec)
 			continue;
 
 		/*
@@ -2222,7 +2220,7 @@ populate_record_worker(FunctionCallInfo fcinfo, const char *funcname,
 			column_info->column_type = column_type;
 		}
 		if ((jtype == JSONOID && (hashentry == NULL || hashentry->isnull)) ||
-			(jtype == JSONBOID && (v == NULL || v->type == jbvNull)))
+			(jtype != JSONOID && (v == NULL || v->type == jbvNull)))
 		{
 			/*
 			 * need InputFunctionCall to happen even for nulls, so that domain
@@ -2701,8 +2699,6 @@ populate_recordset_worker(FunctionCallInfo fcinfo, const char *funcname,
 		JsonbcValue	v;
 		bool		skipNested = false;
 		int			r;
-
-		Assert(jtype == JSONBOID);
 
 		if (JB_ROOT_IS_SCALAR(jb) || !JB_ROOT_IS_ARRAY(jb))
 			ereport(ERROR,
