@@ -216,11 +216,13 @@ typedef struct
 	JsonbcContainer root;
 } Jsonbc;
 
+extern uint32 jsonbc_header(Jsonbc *value);
+
 /* convenience macros for accessing the root container in a Jsonbc datum */
-#define JB_ROOT_COUNT(jbp_)		( *(uint32*) VARDATA(jbp_) >> JB_CSHIFT)
-#define JB_ROOT_IS_SCALAR(jbp_) ( *(uint32*) VARDATA(jbp_) & JB_FSCALAR)
-#define JB_ROOT_IS_OBJECT(jbp_) ( *(uint32*) VARDATA(jbp_) & JB_FOBJECT)
-#define JB_ROOT_IS_ARRAY(jbp_)	( *(uint32*) VARDATA(jbp_) & JB_FARRAY)
+#define JB_ROOT_COUNT(jbp_)		( jsonbc_header(jbp_) >> JB_CSHIFT)
+#define JB_ROOT_IS_SCALAR(jbp_) ( (jsonbc_header(jbp_) & JB_MASK) == JB_FSCALAR)
+#define JB_ROOT_IS_OBJECT(jbp_) ( (jsonbc_header(jbp_) & JB_MASK) == JB_FOBJECT)
+#define JB_ROOT_IS_ARRAY(jbp_)	( (jsonbc_header(jbp_) & JB_MASK) == JB_FARRAY)
 
 
 /*
@@ -425,5 +427,7 @@ extern char *JsonbcToCString(StringInfo out, JsonbcContainer *in,
 /* numeric_utils.c support function */
 extern bool numeric_get_small(Numeric value, uint32 *out);
 extern Numeric small_to_numeric(uint32 value);
+
+extern int jsonbc_root_max_count(Jsonbc *value);
 
 #endif   /* __JSONB_H__ */

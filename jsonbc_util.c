@@ -47,7 +47,9 @@ static void convertJsonbcScalar(StringInfo buffer, JEntry *header, JsonbcValue *
 static int	reserveFromBuffer(StringInfo buffer, int len);
 static void appendToBuffer(StringInfo buffer, const char *data, int len);
 static void copyToBuffer(StringInfo buffer, int offset, const char *data, int len);
+#ifdef NOT_USED
 static short padBufferToInt(StringInfo buffer);
+#endif
 
 static JsonbcIterator *iteratorFromContainer(JsonbcContainer *container, JsonbcIterator *parent);
 static JsonbcIterator *freeAndGetParent(JsonbcIterator *it);
@@ -141,6 +143,14 @@ varbyte_size(uint32 value)
 		return 4;
 	else
 		return 5;
+}
+
+uint32
+jsonbc_header(Jsonbc *value)
+{
+	unsigned char *data = (unsigned char *)VARDATA(value);
+
+	return decode_varbyte(&data);
 }
 
 /*
@@ -1515,7 +1525,7 @@ appendToBuffer(StringInfo buffer, const char *data, int len)
 	copyToBuffer(buffer, offset, data, len);
 }
 
-
+#ifdef NOT_USED
 /*
  * Append padding, so that the length of the StringInfo is int-aligned.
  * Returns the number of padding bytes appended.
@@ -1537,6 +1547,7 @@ padBufferToInt(StringInfo buffer)
 
 	return padlen;
 }
+#endif
 
 /*
  * Given a JsonbcValue, convert to Jsonbc. The result is palloc'd.
