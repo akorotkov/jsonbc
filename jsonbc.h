@@ -144,13 +144,13 @@ typedef uint32 JEntry;
 #define JENTRY_TYPEMASK			0x7
 
 /* values stored in the type bits */
-#define JENTRY_ISSTRING			0x0
-#define JENTRY_ISNUMERIC		0x1
-#define JENTRY_ISINTEGER		0x2
-#define JENTRY_ISBOOL_FALSE		0x3
-#define JENTRY_ISBOOL_TRUE		0x4
-#define JENTRY_ISNULL			0x5
-#define JENTRY_ISCONTAINER		0x6 /* array or object */
+#define JENTRY_ISSTRING			0x1
+#define JENTRY_ISNUMERIC		0x2
+#define JENTRY_ISINTEGER		0x3
+#define JENTRY_ISBOOL_FALSE		0x4
+#define JENTRY_ISBOOL_TRUE		0x5
+#define JENTRY_ISNULL			0x6
+#define JENTRY_ISCONTAINER		0x7 /* array or object */
 
 /* Access macros.  Note possible multiple evaluations */
 #define JBE_OFFLENFLD(je_)		((je_) >> JENTRY_SHIFT)
